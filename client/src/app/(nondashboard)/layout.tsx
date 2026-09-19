@@ -13,18 +13,11 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (authUser) {
-      const userRole = authUser.userRole?.toLowerCase();
-      if (
-        (userRole === "manager" && pathname.startsWith("/search")) ||
-        (userRole === "manager" && pathname === "/")
-      ) {
-        router.push("/managers/properties", { scroll: false });
-      } else {
-        setIsLoading(false);
-      }
+    // If auth is done loading (user found or not), stop blocking
+    if (!authLoading) {
+      setIsLoading(false);
     }
-  }, [authUser, router, pathname]);
+  }, [authLoading]);
 
   if (authLoading || isLoading) return <>Loading...</>;
 

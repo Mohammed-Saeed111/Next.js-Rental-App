@@ -8,17 +8,17 @@ import {
   Tenant,
 } from "@/types/prismaTypes";
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import { fetchAuthSession, getCurrentUser } from "aws-amplify/auth";
+// Local auth helper
+const getLocalToken = () => typeof window !== "undefined" ? localStorage.getItem("rental_token") : null;
 import { FiltersState } from ".";
 
 export const api = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL,
     prepareHeaders: async (headers) => {
-      const session = await fetchAuthSession();
-      const { idToken } = session.tokens ?? {};
-      if (idToken) {
-        headers.set("Authorization", `Bearer ${idToken}`);
+      const token = getLocalToken();
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
       }
       return headers;
     },
@@ -37,34 +37,36 @@ export const api = createApi({
     getAuthUser: build.query<User, void>({
       queryFn: async (_, _queryApi, _extraoptions, fetchWithBQ) => {
         try {
-          const session = await fetchAuthSession();
-          const { idToken } = session.tokens ?? {};
-          const user = await getCurrentUser();
-          const userRole = idToken?.payload["custom:role"] as string;
+          const token = getLocalToken();
+          if (!token) return { error: "No token" };
+
+          // Get user info from local backend
+          const meRes = await fetchWithBQ("/auth/me");
+          if (meRes.error) return { error: "Not authenticated" };
+
+          const localUser = meRes.data as { id: string; email: string; role: string };
+          const userRole = localUser.role;
 
           const endpoint =
             userRole === "manager"
-              ? `/managers/${user.userId}`
-              : `/tenants/${user.userId}`;
+              ? `/managers/${localUser.id}`
+              : `/tenants/${localUser.id}`;
 
           let userDetailsResponse = await fetchWithBQ(endpoint);
 
-          // if user doesn't exist, create new user
-          if (
-            userDetailsResponse.error &&
-            userDetailsResponse.error.status === 404
-          ) {
-            userDetailsResponse = await createNewUserInDatabase(
-              user,
-              idToken,
-              userRole,
-              fetchWithBQ
-            );
+          // if user doesn't exist in tenant/manager table, create them
+          if (userDetailsResponse.error && userDetailsResponse.error.status === 404) {
+            const createEndpoint = userRole === "manager" ? "/managers" : "/tenants";
+            userDetailsResponse = await fetchWithBQ({
+              url: createEndpoint,
+              method: "POST",
+              body: { cognitoId: localUser.id, email: localUser.email, name: localUser.email },
+            });
           }
 
           return {
             data: {
-              cognitoInfo: { ...user },
+              cognitoInfo: { userId: localUser.id, username: localUser.email },
               userInfo: userDetailsResponse.data as Tenant | Manager,
               userRole,
             },

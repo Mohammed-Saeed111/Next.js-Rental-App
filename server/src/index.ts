@@ -11,6 +11,7 @@ import managerRoutes from "./routes/managerRoutes";
 import propertyRoutes from "./routes/propertyRoutes";
 import leaseRoutes from "./routes/leaseRoutes";
 import applicationRoutes from "./routes/applicationRoutes";
+import authRoutes from "./routes/authRoutes";
 
 /* CONFIGURATIONS */
 dotenv.config();
@@ -28,6 +29,7 @@ app.get("/", (req, res) => {
   res.send("This is home route");
 });
 
+app.use("/auth", authRoutes);
 app.use("/applications", applicationRoutes);
 app.use("/properties", propertyRoutes);
 app.use("/leases", leaseRoutes);

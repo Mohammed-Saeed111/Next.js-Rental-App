@@ -1,176 +1,118 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { Amplify } from "aws-amplify";
-import {
-  Authenticator,
-  Heading,
-  Radio,
-  RadioGroupField,
-  useAuthenticator,
-  View,
-} from "@aws-amplify/ui-react";
-import "@aws-amplify/ui-react/styles.css";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
-// https://docs.amplify.aws/gen1/javascript/tools/libraries/configure-categories/
-Amplify.configure({
-  Auth: {
-    Cognito: {
-      userPoolId: process.env.NEXT_PUBLIC_AWS_COGNITO_USER_POOL_ID!,
-      userPoolClientId:
-        process.env.NEXT_PUBLIC_AWS_COGNITO_USER_POOL_CLIENT_ID!,
-    },
-  },
-});
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3002";
 
-const components = {
-  Header() {
-    return (
-      <View className="mt-4 mb-7">
-        <Heading level={3} className="!text-2xl !font-bold">
-          RENT
-          <span className="text-secondary-500 font-light hover:!text-primary-300">
-            IFUL
-          </span>
-        </Heading>
-        <p className="text-muted-foreground mt-2">
-          <span className="font-bold">Welcome!</span> Please sign in to continue
-        </p>
-      </View>
-    );
-  },
-  SignIn: {
-    Footer() {
-      const { toSignUp } = useAuthenticator();
-      return (
-        <View className="text-center mt-4">
-          <p className="text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <button
-              onClick={toSignUp}
-              className="text-primary hover:underline bg-transparent border-none p-0"
-            >
-              Sign up here
-            </button>
-          </p>
-        </View>
-      );
-    },
-  },
-  SignUp: {
-    FormFields() {
-      const { validationErrors } = useAuthenticator();
+interface AuthUser {
+  id: string;
+  email: string;
+  role: string;
+}
 
-      return (
-        <>
-          <Authenticator.SignUp.FormFields />
-          <RadioGroupField
-            legend="Role"
-            name="custom:role"
-            errorMessage={validationErrors?.["custom:role"]}
-            hasError={!!validationErrors?.["custom:role"]}
-            isRequired
-          >
-            <Radio value="tenant">Tenant</Radio>
-            <Radio value="manager">Manager</Radio>
-          </RadioGroupField>
-        </>
-      );
-    },
+interface AuthContextType {
+  user: AuthUser | null;
+  token: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, role: string) => Promise<void>;
+  logout: () => void;
+  isLoading: boolean;
+  error: string | null;
+}
 
-    Footer() {
-      const { toSignIn } = useAuthenticator();
-      return (
-        <View className="text-center mt-4">
-          <p className="text-muted-foreground">
-            Already have an account?{" "}
-            <button
-              onClick={toSignIn}
-              className="text-primary hover:underline bg-transparent border-none p-0"
-            >
-              Sign in
-            </button>
-          </p>
-        </View>
-      );
-    },
-  },
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
 };
 
-const formFields = {
-  signIn: {
-    username: {
-      placeholder: "Enter your email",
-      label: "Email",
-      isRequired: true,
-    },
-    password: {
-      placeholder: "Enter your password",
-      label: "Password",
-      isRequired: true,
-    },
-  },
-  signUp: {
-    username: {
-      order: 1,
-      placeholder: "Choose a username",
-      label: "Username",
-      isRequired: true,
-    },
-    email: {
-      order: 2,
-      placeholder: "Enter your email address",
-      label: "Email",
-      isRequired: true,
-    },
-    password: {
-      order: 3,
-      placeholder: "Create a password",
-      label: "Password",
-      isRequired: true,
-    },
-    confirm_password: {
-      order: 4,
-      placeholder: "Confirm your password",
-      label: "Confirm Password",
-      isRequired: true,
-    },
-  },
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("rental_token");
+    if (stored) {
+      setToken(stored);
+      fetch(`${API}/auth/me`, {
+        headers: { Authorization: `Bearer ${stored}` },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((u) => { if (u) setUser(u); })
+        .finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setError(null);
+    const res = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Login failed");
+    localStorage.setItem("rental_token", data.token);
+    setToken(data.token);
+    setUser(data.user);
+  };
+
+  const register = async (email: string, password: string, role: string) => {
+    setError(null);
+    const res = await fetch(`${API}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Registration failed");
+    localStorage.setItem("rental_token", data.token);
+    setToken(data.token);
+    setUser(data.user);
+  };
+
+  const logout = () => {
+    localStorage.removeItem("rental_token");
+    setToken(null);
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, token, login, register, logout, isLoading, error }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
+// Auth gate component (replaces Cognito Authenticator)
 const Auth = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuthenticator((context) => [context.user]);
   const router = useRouter();
   const pathname = usePathname();
+  const { user, isLoading } = useAuth();
 
   const isAuthPage = pathname.match(/^\/(signin|signup)$/);
   const isDashboardPage =
     pathname.startsWith("/manager") || pathname.startsWith("/tenants");
 
-  // Redirect authenticated users away from auth pages
   useEffect(() => {
-    if (user && isAuthPage) {
+    if (!isLoading && user && isAuthPage) {
       router.push("/");
     }
-  }, [user, isAuthPage, router]);
+    if (!isLoading && !user && isDashboardPage) {
+      router.push("/signin");
+    }
+  }, [user, isLoading, isAuthPage, isDashboardPage, router]);
 
-  // Allow access to public pages without authentication
-  if (!isAuthPage && !isDashboardPage) {
-    return <>{children}</>;
-  }
+  if (isLoading) return <div className="flex items-center justify-center h-screen text-gray-500">Loading...</div>;
 
-  return (
-    <div className="h-full">
-      <Authenticator
-        initialState={pathname.includes("signup") ? "signUp" : "signIn"}
-        components={components}
-        formFields={formFields}
-      >
-        {() => <>{children}</>}
-      </Authenticator>
-    </div>
-  );
+  return <>{children}</>;
 };
 
 export default Auth;
